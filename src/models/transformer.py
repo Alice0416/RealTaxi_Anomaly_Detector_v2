@@ -50,6 +50,61 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 
+class TransformerAutoencoder(nn.Module):
+    """
+    Transformer sequence autoencoder for unsupervised anomaly detection.
+
+    The encoder processes all W timesteps and outputs (B, W, d_model).
+    A linear output projection reconstructs each timestep back to input_dim.
+    No pooling — the full sequence reconstruction drives training.
+    Anomaly score = per-window MSE between input and reconstruction.
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        d_model: int = 128,
+        nhead: int = 8,
+        num_layers: int = 3,
+        dim_feedforward: int = 256,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.input_proj = nn.Linear(input_dim, d_model)
+        self.pos_enc = PositionalEncoding(d_model, dropout=dropout)
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            batch_first=True,
+            norm_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(
+            encoder_layer,
+            num_layers=num_layers,
+            norm=nn.LayerNorm(d_model),
+        )
+        # Project each token back to input_dim
+        self.output_proj = nn.Linear(d_model, input_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+        x : (B, W, input_dim)
+
+        Returns
+        -------
+        x_hat : (B, W, input_dim)
+        """
+        h = self.input_proj(x)        # (B, W, d_model)
+        h = self.pos_enc(h)
+        h = self.encoder(h)           # (B, W, d_model)
+        return self.output_proj(h)    # (B, W, input_dim)
+
+
 class TransformerAnomalyClassifier(nn.Module):
     """
     Pre-norm Transformer encoder for binary anomaly classification.

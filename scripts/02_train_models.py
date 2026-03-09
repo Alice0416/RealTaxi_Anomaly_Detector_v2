@@ -11,14 +11,18 @@ Traditional (static):
 Incremental (online):
   IncrementalMeanStd  EMA-based z-score detector
 
-Deep temporal (supervised):
-  GRU          Gated Recurrent Unit classifier
-  LSTM         Long Short-Term Memory classifier
-  CNN          1-D Convolutional Neural Network classifier
-  Transformer  Multi-head self-attention encoder classifier
+Deep temporal (unsupervised reconstruction):
+  GRU          GRU sequence autoencoder — MSE anomaly score
+  LSTM         LSTM sequence autoencoder — MSE anomaly score
+  CNN          1-D CNN sequence autoencoder — MSE anomaly score
+  Transformer  Transformer sequence autoencoder — MSE anomaly score
+
+All deep models are trained on NORMAL-ONLY windows (y_ep == 0) and scored
+by reconstruction MSE, completely avoiding the extreme label imbalance
+that caused inverted AUROC in the supervised classifier approach.
 
 Reconstruction-based:
-  VAE          Variational Autoencoder (unsupervised)
+  VAE          Variational Autoencoder (also unsupervised, for comparison)
 
 All models are saved to the ``models/`` directory.
 """
@@ -36,13 +40,12 @@ from src.config import Paths, DataCfg, TrainCfg, LofCfg, TradCfg, IncrementalCfg
 from src.models.lof import LOFDetector
 from src.models.traditional import IsolationForestDetector, KNNDetector
 from src.models.incremental import IncrementalMeanStdDetector
-from src.models.rnn import GRUAnomalyClassifier
-from src.models.lstm import LSTMAnomalyClassifier
-from src.models.cnn import CNNAnomalyClassifier
-from src.models.transformer import TransformerAnomalyClassifier
-from src.train.train_rnn import train_rnn
+from src.models.rnn import GRUAutoencoder
+from src.models.lstm import LSTMAutoencoder
+from src.models.cnn import CNNAutoencoder
+from src.models.transformer import TransformerAutoencoder
+from src.train.train_reconstruction import train_reconstruction
 from src.train.train_vae import train_vae
-from src.train.train_deep import train_deep_classifier
 from src.plotting import plot_training_curves
 
 
@@ -106,33 +109,45 @@ def main():
     print("Saved:", incr_path)
 
     # ------------------------------------------------------------------ #
-    # 3. Deep temporal classifiers                                        #
+    # 3. Deep reconstruction autoencoders (unsupervised, normal-only)    #
     # ------------------------------------------------------------------ #
-    # Deep classifiers use endpoint labels (y_ep) for training.
-    # y_ep[i] = 1 iff the LAST timestep of window i is anomalous, giving a
-    # clean causal signal instead of the heavily contaminated any-in-window label.
     deep_histories = {}
 
-    print("\n[5/8] Training GRU ...")
+    print("\n[5/8] Training GRU autoencoder ...")
+    gru = GRUAutoencoder(
+        input_dim=input_dim,
+        hidden=cfg.RNN_HIDDEN,
+        layers=cfg.RNN_LAYERS,
+        dropout=cfg.RNN_DROPOUT,
+    ).to(device)
     rnn_path = str(paths.MODEL_DIR / "rnn.pt")
-    _, rnn_hist = train_rnn(split.X_train, split.y_ep_train, split.X_val, split.y_ep_val, cfg, rnn_path)
+    _, rnn_hist = train_reconstruction(
+        model=gru,
+        X_train=split.X_train,
+        y_ep_train=split.y_ep_train,
+        X_val=split.X_val,
+        epochs=cfg.RNN_EPOCHS,
+        lr=cfg.RNN_LR,
+        batch_size=cfg.RNN_BATCH,
+        out_path=rnn_path,
+        device=device,
+    )
     deep_histories["GRU"] = rnn_hist
     print("Saved:", rnn_path)
 
-    print("\n[6/8] Training LSTM ...")
-    lstm_model = LSTMAnomalyClassifier(
+    print("\n[6/8] Training LSTM autoencoder ...")
+    lstm = LSTMAutoencoder(
         input_dim=input_dim,
         hidden=cfg.LSTM_HIDDEN,
         layers=cfg.LSTM_LAYERS,
         dropout=cfg.LSTM_DROPOUT,
     ).to(device)
     lstm_path = str(paths.MODEL_DIR / "lstm.pt")
-    _, lstm_hist = train_deep_classifier(
-        model=lstm_model,
+    _, lstm_hist = train_reconstruction(
+        model=lstm,
         X_train=split.X_train,
-        y_train=split.y_ep_train,
+        y_ep_train=split.y_ep_train,
         X_val=split.X_val,
-        y_val=split.y_ep_val,
         epochs=cfg.LSTM_EPOCHS,
         lr=cfg.LSTM_LR,
         batch_size=cfg.LSTM_BATCH,
@@ -142,8 +157,8 @@ def main():
     deep_histories["LSTM"] = lstm_hist
     print("Saved:", lstm_path)
 
-    print("\n[7/8] Training CNN ...")
-    cnn_model = CNNAnomalyClassifier(
+    print("\n[7/8] Training CNN autoencoder ...")
+    cnn = CNNAutoencoder(
         input_dim=input_dim,
         num_filters=cfg.CNN_FILTERS,
         kernel_size=cfg.CNN_KERNEL,
@@ -151,12 +166,11 @@ def main():
         dropout=cfg.CNN_DROPOUT,
     ).to(device)
     cnn_path = str(paths.MODEL_DIR / "cnn.pt")
-    _, cnn_hist = train_deep_classifier(
-        model=cnn_model,
+    _, cnn_hist = train_reconstruction(
+        model=cnn,
         X_train=split.X_train,
-        y_train=split.y_ep_train,
+        y_ep_train=split.y_ep_train,
         X_val=split.X_val,
-        y_val=split.y_ep_val,
         epochs=cfg.CNN_EPOCHS,
         lr=cfg.CNN_LR,
         batch_size=cfg.CNN_BATCH,
@@ -166,8 +180,8 @@ def main():
     deep_histories["CNN"] = cnn_hist
     print("Saved:", cnn_path)
 
-    print("\n[8/8] Training Transformer ...")
-    tf_model = TransformerAnomalyClassifier(
+    print("\n[8/8] Training Transformer autoencoder ...")
+    tf = TransformerAutoencoder(
         input_dim=input_dim,
         d_model=cfg.TF_D_MODEL,
         nhead=cfg.TF_NHEAD,
@@ -176,12 +190,11 @@ def main():
         dropout=cfg.TF_DROPOUT,
     ).to(device)
     tf_path = str(paths.MODEL_DIR / "transformer.pt")
-    _, tf_hist = train_deep_classifier(
-        model=tf_model,
+    _, tf_hist = train_reconstruction(
+        model=tf,
         X_train=split.X_train,
-        y_train=split.y_ep_train,
+        y_ep_train=split.y_ep_train,
         X_val=split.X_val,
-        y_val=split.y_ep_val,
         epochs=cfg.TF_EPOCHS,
         lr=cfg.TF_LR,
         batch_size=cfg.TF_BATCH,
@@ -191,7 +204,7 @@ def main():
     deep_histories["Transformer"] = tf_hist
     print("Saved:", tf_path)
 
-    # VAE (reconstruction-based, unsupervised) — train on normal-only windows
+    # VAE (variational autoencoder — also unsupervised, for comparison)
     print("\nTraining VAE ...")
     vae_path = str(paths.MODEL_DIR / "vae.pt")
     _, vae_hist = train_vae(split.X_train, split.y_ep_train, split.X_val, cfg, vae_path)

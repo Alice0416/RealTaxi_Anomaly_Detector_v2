@@ -4,16 +4,20 @@ import pandas as pd
 import torch
 
 from src.models.lof import LOFDetector
-from src.models.rnn import GRUAnomalyClassifier
+from src.models.rnn import GRUAutoencoder
 from src.models.vae import WindowVAE
 from src.models.ensemble import normalize_minmax, ensemble_mean
 
-def rnn_scores(model, X, device):
+
+def recon_scores(model, X, device):
+    """Reconstruction MSE for any sequence autoencoder (GRU/LSTM/CNN/Transformer)."""
     model.eval()
     with torch.no_grad():
         xb = torch.tensor(X, dtype=torch.float32, device=device)
-        logits = model(xb).detach().cpu().numpy()
-    return 1.0 / (1.0 + np.exp(-logits))  # sigmoid -> [0,1]
+        x_hat = model(xb)
+        mse = torch.mean((x_hat - xb) ** 2, dim=(1, 2)).detach().cpu().numpy()
+    return mse
+
 
 def vae_scores(model, X, device):
     model.eval()
@@ -23,6 +27,7 @@ def vae_scores(model, X, device):
         x_hat, _, _ = model(xb)
         recon = torch.mean((x_hat - xb) ** 2, dim=1).detach().cpu().numpy()
     return recon  # not yet [0,1]
+
 
 def run_all_scores(split, cfg, paths):
     paths.OUT_DIR.mkdir(parents=True, exist_ok=True)
