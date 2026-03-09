@@ -34,7 +34,7 @@ class TrainCfg:
     DEVICE: str = "cuda"           
 
     # RNN
-    RNN_EPOCHS: int = 5
+    RNN_EPOCHS: int = 40
     RNN_LR: float = 1e-3
     RNN_HIDDEN: int = 64
     RNN_LAYERS: int = 1
@@ -42,7 +42,7 @@ class TrainCfg:
     RNN_DROPOUT: float = 0.0
 
     # LSTM
-    LSTM_EPOCHS: int = 5
+    LSTM_EPOCHS: int = 40
     LSTM_LR: float = 1e-3
     LSTM_HIDDEN: int = 64
     LSTM_LAYERS: int = 2
@@ -50,7 +50,7 @@ class TrainCfg:
     LSTM_DROPOUT: float = 0.1
 
     # CNN
-    CNN_EPOCHS: int = 5
+    CNN_EPOCHS: int = 40
     CNN_LR: float = 1e-3
     CNN_FILTERS: int = 64
     CNN_KERNEL: int = 3
@@ -58,22 +58,22 @@ class TrainCfg:
     CNN_BATCH: int = 256
     CNN_DROPOUT: float = 0.1
 
-    # Transformer
-    TF_EPOCHS: int = 5
-    TF_LR: float = 1e-3
-    TF_D_MODEL: int = 64
-    TF_NHEAD: int = 4
-    TF_LAYERS: int = 2
-    TF_DIM_FF: int = 128
+    # Transformer (redesigned: larger capacity, last-token pooling)
+    TF_EPOCHS: int = 50
+    TF_LR: float = 5e-4
+    TF_D_MODEL: int = 128
+    TF_NHEAD: int = 8
+    TF_LAYERS: int = 3
+    TF_DIM_FF: int = 256
     TF_BATCH: int = 256
     TF_DROPOUT: float = 0.1
 
     # VAE
-    VAE_EPOCHS: int = 10
+    VAE_EPOCHS: int = 50
     VAE_LR: float = 1e-3
     VAE_HIDDEN: int = 128
     VAE_Z: int = 16
-    VAE_BETA: float = 1.0
+    VAE_BETA: float = 0.5   # lower beta -> prioritise reconstruction over KL
     VAE_BATCH: int = 256
 
 @dataclass(frozen=True)

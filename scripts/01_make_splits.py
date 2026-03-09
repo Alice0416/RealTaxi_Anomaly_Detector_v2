@@ -7,8 +7,8 @@ def main():
     data_cfg = DataCfg()
 
     df = load_taxi_csv(str(paths.DATA_CSV))
-    X, y, ts = make_windows(df, data_cfg.WINDOW, data_cfg.STRIDE, data_cfg.USE_TIME_FEATURES)
-    split = chronological_split(X, y, ts, data_cfg.TRAIN_FRAC, data_cfg.VAL_FRAC)
+    X, y, y_ep, ts = make_windows(df, data_cfg.WINDOW, data_cfg.STRIDE, data_cfg.USE_TIME_FEATURES)
+    split = chronological_split(X, y, y_ep, ts, data_cfg.TRAIN_FRAC, data_cfg.VAL_FRAC)
 
     scaler = fit_standardizer_on_train(split.X_train)
     split.X_train = apply_standardizer(split.X_train, scaler)

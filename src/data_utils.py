@@ -13,12 +13,17 @@ from sklearn.preprocessing import StandardScaler
 @dataclass
 class SplitData:
     # X_*: (N, window, D), y_*: (N,), ts_*: (N,)
+    # y_*      = 1 if ANY timestep in the window is anomalous (for evaluation)
+    # y_ep_*   = 1 if the LAST timestep of the window is anomalous (for classifier training)
     X_train: np.ndarray
     y_train: np.ndarray
+    y_ep_train: np.ndarray
     X_val: np.ndarray
     y_val: np.ndarray
+    y_ep_val: np.ndarray
     X_test: np.ndarray
     y_test: np.ndarray
+    y_ep_test: np.ndarray
     ts_train: np.ndarray
     ts_val: np.ndarray
     ts_test: np.ndarray
@@ -59,9 +64,17 @@ def make_windows(
     window: int,
     stride: int,
     use_time_features: bool = True,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    # Builds sliding windows for sequence models and window-level labels
-    # X: (N, window, D), y: (N,) where y=1 if any anomaly inside the window, ts: window end timestamp
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    # Builds sliding windows for sequence models and window-level labels.
+    # Returns:
+    #   X    : (N, window, D)
+    #   y    : (N,) 1 if ANY timestep in window is anomalous (used for evaluation)
+    #   y_ep : (N,) 1 if the LAST timestep is anomalous (used for classifier training)
+    #   ts   : window end timestamp
+    # Using the endpoint label for classifier training gives a clean causal signal:
+    # each window predicts whether its final timestep is anomalous. The any-in-window
+    # label causes ~48 near-identical windows to be labelled positive per anomaly point,
+    # making them indistinguishable from normal windows and producing AUROC < 0.5.
     df2 = df.copy()
     feat_cols = ["value"]
 
@@ -73,22 +86,25 @@ def make_windows(
     labels = df2["label"].to_numpy(dtype=np.int64)
     tss = df2["timestamp"].to_numpy()
 
-    X_list, y_list, ts_list = [], [], []
+    X_list, y_list, y_ep_list, ts_list = [], [], [], []
     for end in range(window - 1, len(df2), stride):
         start = end - window + 1
         X_list.append(values[start:end + 1])
         y_list.append(1 if labels[start:end + 1].max() > 0 else 0)
+        y_ep_list.append(int(labels[end]))
         ts_list.append(tss[end])
 
     X = np.stack(X_list, axis=0)
     y = np.asarray(y_list, dtype=np.int64)
+    y_ep = np.asarray(y_ep_list, dtype=np.int64)
     ts = np.asarray(ts_list)
-    return X, y, ts
+    return X, y, y_ep, ts
 
 
 def chronological_split(
     X: np.ndarray,
     y: np.ndarray,
+    y_ep: np.ndarray,
     ts: np.ndarray,
     train_frac: float,
     val_frac: float,
@@ -98,11 +114,20 @@ def chronological_split(
     n_train = int(n * train_frac)
     n_val = int(n * val_frac)
 
-    X_train, y_train, ts_train = X[:n_train], y[:n_train], ts[:n_train]
-    X_val, y_val, ts_val = X[n_train:n_train + n_val], y[n_train:n_train + n_val], ts[n_train:n_train + n_val]
-    X_test, y_test, ts_test = X[n_train + n_val:], y[n_train + n_val:], ts[n_train + n_val:]
-
-    return SplitData(X_train, y_train, X_val, y_val, X_test, y_test, ts_train, ts_val, ts_test)
+    return SplitData(
+        X_train=X[:n_train],
+        y_train=y[:n_train],
+        y_ep_train=y_ep[:n_train],
+        X_val=X[n_train:n_train + n_val],
+        y_val=y[n_train:n_train + n_val],
+        y_ep_val=y_ep[n_train:n_train + n_val],
+        X_test=X[n_train + n_val:],
+        y_test=y[n_train + n_val:],
+        y_ep_test=y_ep[n_train + n_val:],
+        ts_train=ts[:n_train],
+        ts_val=ts[n_train:n_train + n_val],
+        ts_test=ts[n_train + n_val:],
+    )
 
 
 def fit_standardizer_on_train(X_train: np.ndarray) -> StandardScaler:

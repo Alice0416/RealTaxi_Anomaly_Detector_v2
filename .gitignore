@@ -3,3 +3,9 @@ __pycache__/
 *.pyo
 .ipynb_checkpoints/
 .DS_Store
+.claude/
+
+# Local dev notes
+CHANGES.md
+RESULTS.md
+FINDINGS.md

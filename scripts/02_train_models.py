@@ -23,6 +23,7 @@ Reconstruction-based:
 All models are saved to the ``models/`` directory.
 """
 
+import json
 import pickle
 import sys
 import torch
@@ -42,6 +43,7 @@ from src.models.transformer import TransformerAnomalyClassifier
 from src.train.train_rnn import train_rnn
 from src.train.train_vae import train_vae
 from src.train.train_deep import train_deep_classifier
+from src.plotting import plot_training_curves
 
 
 def main():
@@ -106,9 +108,15 @@ def main():
     # ------------------------------------------------------------------ #
     # 3. Deep temporal classifiers                                        #
     # ------------------------------------------------------------------ #
+    # Deep classifiers use endpoint labels (y_ep) for training.
+    # y_ep[i] = 1 iff the LAST timestep of window i is anomalous, giving a
+    # clean causal signal instead of the heavily contaminated any-in-window label.
+    deep_histories = {}
+
     print("\n[5/8] Training GRU ...")
     rnn_path = str(paths.MODEL_DIR / "rnn.pt")
-    train_rnn(split.X_train, split.y_train, split.X_val, split.y_val, cfg, rnn_path)
+    _, rnn_hist = train_rnn(split.X_train, split.y_ep_train, split.X_val, split.y_ep_val, cfg, rnn_path)
+    deep_histories["GRU"] = rnn_hist
     print("Saved:", rnn_path)
 
     print("\n[6/8] Training LSTM ...")
@@ -119,18 +127,19 @@ def main():
         dropout=cfg.LSTM_DROPOUT,
     ).to(device)
     lstm_path = str(paths.MODEL_DIR / "lstm.pt")
-    train_deep_classifier(
+    _, lstm_hist = train_deep_classifier(
         model=lstm_model,
         X_train=split.X_train,
-        y_train=split.y_train,
+        y_train=split.y_ep_train,
         X_val=split.X_val,
-        y_val=split.y_val,
+        y_val=split.y_ep_val,
         epochs=cfg.LSTM_EPOCHS,
         lr=cfg.LSTM_LR,
         batch_size=cfg.LSTM_BATCH,
         out_path=lstm_path,
         device=device,
     )
+    deep_histories["LSTM"] = lstm_hist
     print("Saved:", lstm_path)
 
     print("\n[7/8] Training CNN ...")
@@ -142,18 +151,19 @@ def main():
         dropout=cfg.CNN_DROPOUT,
     ).to(device)
     cnn_path = str(paths.MODEL_DIR / "cnn.pt")
-    train_deep_classifier(
+    _, cnn_hist = train_deep_classifier(
         model=cnn_model,
         X_train=split.X_train,
-        y_train=split.y_train,
+        y_train=split.y_ep_train,
         X_val=split.X_val,
-        y_val=split.y_val,
+        y_val=split.y_ep_val,
         epochs=cfg.CNN_EPOCHS,
         lr=cfg.CNN_LR,
         batch_size=cfg.CNN_BATCH,
         out_path=cnn_path,
         device=device,
     )
+    deep_histories["CNN"] = cnn_hist
     print("Saved:", cnn_path)
 
     print("\n[8/8] Training Transformer ...")
@@ -166,25 +176,40 @@ def main():
         dropout=cfg.TF_DROPOUT,
     ).to(device)
     tf_path = str(paths.MODEL_DIR / "transformer.pt")
-    train_deep_classifier(
+    _, tf_hist = train_deep_classifier(
         model=tf_model,
         X_train=split.X_train,
-        y_train=split.y_train,
+        y_train=split.y_ep_train,
         X_val=split.X_val,
-        y_val=split.y_val,
+        y_val=split.y_ep_val,
         epochs=cfg.TF_EPOCHS,
         lr=cfg.TF_LR,
         batch_size=cfg.TF_BATCH,
         out_path=tf_path,
         device=device,
     )
+    deep_histories["Transformer"] = tf_hist
     print("Saved:", tf_path)
 
-    # VAE (reconstruction-based, unsupervised)
+    # VAE (reconstruction-based, unsupervised) — train on normal-only windows
     print("\nTraining VAE ...")
     vae_path = str(paths.MODEL_DIR / "vae.pt")
-    train_vae(split.X_train, split.X_val, cfg, vae_path)
+    _, vae_hist = train_vae(split.X_train, split.y_ep_train, split.X_val, cfg, vae_path)
+    deep_histories["VAE"] = vae_hist
     print("Saved:", vae_path)
+
+    # ------------------------------------------------------------------ #
+    # 4. Save training histories and plot loss curves                     #
+    # ------------------------------------------------------------------ #
+    paths.TAB_DIR.mkdir(parents=True, exist_ok=True)
+    hist_path = str(paths.TAB_DIR / "training_histories.json")
+    with open(hist_path, "w") as f:
+        json.dump(deep_histories, f, indent=2)
+    print(f"\nSaved training histories: {hist_path}")
+
+    paths.FIG_DIR.mkdir(parents=True, exist_ok=True)
+    curves_path = str(paths.FIG_DIR / "fig0_training_curves.png")
+    plot_training_curves(curves_path, deep_histories)
 
     print("\nAll models trained successfully.")
 

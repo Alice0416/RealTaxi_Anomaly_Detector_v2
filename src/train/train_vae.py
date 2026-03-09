@@ -10,15 +10,30 @@ def vae_loss(x, x_hat, mu, logvar, beta: float):
     kl = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
     return (recon + beta * kl).mean(), recon.detach()
 
-def train_vae(X_train, X_val, cfg, out_path):
+def train_vae(X_train, y_ep_train, X_val, cfg, out_path):
+    """
+    Train VAE on normal-only windows.
+
+    y_ep_train : endpoint labels (0=normal, 1=anomaly at last step).
+    We exclude anomaly-endpoint windows so the VAE learns a clean normal
+    distribution and can flag anomalies via elevated reconstruction error.
+    """
     if torch.cuda.is_available() and cfg.DEVICE == "cuda":
         device = torch.device("cuda")
     else:
         device = torch.device("cpu")
         print("CUDA not available.")
 
+    # Keep only normal-endpoint windows for VAE training
+    normal_mask = y_ep_train == 0
+    X_train_normal = X_train[normal_mask]
+    n_total = len(X_train)
+    n_normal = int(normal_mask.sum())
+    print(f"VAE training on {n_normal}/{n_total} normal windows "
+          f"({100 * n_normal / max(n_total, 1):.1f}%)")
+
     # VAE uses flattened windows
-    Xtr = torch.tensor(X_train.reshape(X_train.shape[0], -1), dtype=torch.float32)
+    Xtr = torch.tensor(X_train_normal.reshape(X_train_normal.shape[0], -1), dtype=torch.float32)
     Xva = torch.tensor(X_val.reshape(X_val.shape[0], -1), dtype=torch.float32)
 
     tr_loader = DataLoader(TensorDataset(Xtr), batch_size=cfg.VAE_BATCH, shuffle=True)
@@ -27,9 +42,12 @@ def train_vae(X_train, X_val, cfg, out_path):
     model = WindowVAE(input_dim=Xtr.shape[1], hidden=cfg.VAE_HIDDEN, z_dim=cfg.VAE_Z).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=cfg.VAE_LR)
 
+    history = {"train_loss": [], "val_loss": []}
     best_val = 1e9
     for epoch in range(cfg.VAE_EPOCHS):
         model.train()
+        train_loss = 0.0
+        n_tr = 0
         pbar = tqdm(tr_loader, desc=f"VAE epoch {epoch+1}/{cfg.VAE_EPOCHS}")
         for (xb,) in pbar:
             xb = xb.to(device)
@@ -38,7 +56,10 @@ def train_vae(X_train, X_val, cfg, out_path):
             loss, _ = vae_loss(xb, x_hat, mu, logvar, beta=cfg.VAE_BETA)
             loss.backward()
             opt.step()
+            train_loss += float(loss.item()) * xb.size(0)
+            n_tr += xb.size(0)
             pbar.set_postfix(loss=float(loss.item()))
+        train_loss /= max(n_tr, 1)
 
         model.eval()
         val_loss = 0.0
@@ -52,8 +73,12 @@ def train_vae(X_train, X_val, cfg, out_path):
                 n += xb.size(0)
         val_loss /= max(n, 1)
 
+        history["train_loss"].append(train_loss)
+        history["val_loss"].append(val_loss)
+        print(f"  train_loss={train_loss:.4f}  val_loss={val_loss:.4f}")
+
         if val_loss < best_val:
             best_val = val_loss
             torch.save(model.state_dict(), out_path)
 
-    return out_path
+    return out_path, history

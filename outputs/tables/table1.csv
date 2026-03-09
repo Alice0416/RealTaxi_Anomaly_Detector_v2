@@ -3,9 +3,9 @@ LOF,Traditional,0.8597,0.8744,36.0
 IsoForest,Traditional,0.6573,0.6216,0.0
 KNN,Traditional,0.8945,0.8836,43.0
 Incremental,Incremental,0.4695,0.3816,0.0
-GRU,Deep Temporal,0.3534,0.2907,0.0
-LSTM,Deep Temporal,0.3553,0.287,0.0
-CNN,Deep Temporal,0.243,0.2509,0.0
-Transformer,Deep Temporal,0.2547,0.2532,0.0
-VAE,Reconstruction,0.4005,0.4352,0.0
-ENS,Ensemble,0.7496,0.7242,10.67
+GRU,Deep Temporal,0.3489,0.2932,0.0
+LSTM,Deep Temporal,0.3591,0.2923,0.0
+CNN,Deep Temporal,0.2713,0.2585,0.0
+Transformer,Deep Temporal,0.4635,0.3291,0.0
+VAE,Reconstruction,0.4043,0.4248,0.0
+ENS,Ensemble,0.7516,0.7364,74.0
